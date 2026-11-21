@@ -13,6 +13,7 @@ app.use("/api/orders", require("./routes/orders"));
 app.use("/api/users", require("./routes/users"));
 app.use("/api/messages", require("./routes/messages"));
 app.use("/api/admin", require("./routes/admin"));
+app.use("/api/settings", require("./routes/settings"));
 
 app.get("/", (req, res) => res.send("SmashCart API is running"));
 

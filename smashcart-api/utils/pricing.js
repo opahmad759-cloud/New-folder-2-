@@ -1,23 +1,30 @@
-const FREE_DELIVERY_OVER = 10000;
-const DELIVERY_FEE = 300;
+// used if the settings cannot be read, so the shop never breaks
+const DEFAULTS = {
+    deliveryFee: 300,
+    freeDeliveryFrom: 10000,
+    tier1MinItems: 2,
+    tier1Percent: 5,
+    tier2MinItems: 5,
+    tier2Percent: 10,
+};
 
 // discount on the whole order, by the total number of items
-function getDiscountRate(totalItems) {
-    if (totalItems >= 5) return 0.1; // 5 or more items: 10%
-    if (totalItems >= 2) return 0.05; // 2 to 4 items: 5%
-    return 0; // less than 2 items: no discount
+function getDiscountRate(totalItems, s = DEFAULTS) {
+    if (totalItems >= s.tier2MinItems) return s.tier2Percent / 100;
+    if (totalItems >= s.tier1MinItems) return s.tier1Percent / 100;
+    return 0;
 }
 
 // lines: [{ price, qty }]
-function calculateTotals(lines) {
+function calculateTotals(lines, settings = DEFAULTS) {
     const totalItems = lines.reduce((sum, l) => sum + l.qty, 0);
     const subtotal = lines.reduce((sum, l) => sum + l.price * l.qty, 0);
 
-    const discountRate = getDiscountRate(totalItems);
+    const discountRate = getDiscountRate(totalItems, settings);
     const discount = Math.round(subtotal * discountRate);
     const afterDiscount = subtotal - discount;
 
-    const delivery = afterDiscount >= FREE_DELIVERY_OVER ? 0 : DELIVERY_FEE;
+    const delivery = afterDiscount >= settings.freeDeliveryFrom ? 0 : settings.deliveryFee;
     const total = afterDiscount + delivery;
 
     return { subtotal, discountRate, discount, delivery, total };

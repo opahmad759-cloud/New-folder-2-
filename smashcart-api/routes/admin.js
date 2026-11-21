@@ -4,6 +4,7 @@ const Order = require("../models/Order");
 const Product = require("../models/Product");
 const User = require("../models/User");
 const mongoose = require("mongoose")
+const Settings = require("../models/Settings");
 
 const router = express.Router();
 
@@ -275,6 +276,65 @@ router.get("/customers", async (req, res) => {
     } catch (err) {
         console.error(err);
         res.status(500).json({ message: "Could not load customers" });
+    }
+});
+
+// PATCH /api/admin/products/:id/stock - set the stock number only
+router.patch("/products/:id/stock", async (req, res) => {
+    try {
+        if (!mongoose.isValidObjectId(req.params.id)) {
+            return res.status(400).json({ message: "Invalid product id" });
+        }
+        const stock = Number(req.body.stock);
+        if (!Number.isInteger(stock) || stock < 0) {
+            return res.status(400).json({ message: "Stock must be a whole number, 0 or more" });
+        }
+
+        const product = await Product.findByIdAndUpdate(
+            req.params.id,
+            { stock },
+            { returnDocument: "after" }
+        ).select("name stock");
+        if (!product) return res.status(404).json({ message: "Product not found" });
+
+        res.json(product);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: "Could not update stock" });
+    }
+});
+
+// PUT /api/admin/settings
+router.put("/settings", async (req, res) => {
+    try {
+        const keys = ["deliveryFee", "freeDeliveryFrom", "tier1MinItems", "tier1Percent", "tier2MinItems", "tier2Percent"];
+        const data = {};
+        for (const k of keys) {
+            const n = Number(req.body[k]);
+            if (!Number.isFinite(n) || n < 0) {
+                return res.status(400).json({ message: `${k} must be a number, 0 or more` });
+            }
+            data[k] = n;
+        }
+        if (!Number.isInteger(data.tier1MinItems) || !Number.isInteger(data.tier2MinItems) || data.tier1MinItems < 1) {
+            return res.status(400).json({ message: "Item counts must be whole numbers, 1 or more" });
+        }
+        if (data.tier2MinItems <= data.tier1MinItems) {
+            return res.status(400).json({ message: "The bigger discount must start at more items than the smaller one" });
+        }
+        if (data.tier1Percent > 90 || data.tier2Percent > 90) {
+            return res.status(400).json({ message: "Discount cannot be more than 90%" });
+        }
+
+        const s = await Settings.findOneAndUpdate(
+            { key: "main" },
+            { $set: data },
+            { upsert: true, returnDocument: "after", setDefaultsOnInsert: true, runValidators: true }
+        );
+        res.json(s);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: "Could not save settings" });
     }
 });
 

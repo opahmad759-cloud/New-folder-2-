@@ -4,6 +4,7 @@ const Product = require("../models/Product");
 const Order = require("../models/Order");
 const { requireAuth } = require("../middleware/auth");
 const { calculateTotals } = require("../utils/pricing");
+const { getSettings } = require("../utils/settings");
 
 const router = express.Router();
 
@@ -69,7 +70,8 @@ router.post("/", requireAuth, async (req, res) => {
         }
 
         // 4) work out the totals on the server and save the order
-        const totals = calculateTotals(lines);
+        const settings = await getSettings();
+        const totals = calculateTotals(lines, settings);
         const order = await Order.create({
             user: req.user.id,
             items: lines,
