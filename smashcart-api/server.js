@@ -5,7 +5,7 @@ const mongoose = require("mongoose");
 const Product = require("./models/Product");
 
 const app = express();
-app.use(cors());
+app.use(cors({ origin: process.env.CLIENT_URL }));
 app.use(express.json());
 
 app.use("/api/auth", require("./routes/auth"));
@@ -41,10 +41,12 @@ app.get("/api/products/:id", async (req, res) => {
   }
 });
 
+const PORT = process.env.PORT || 5000;
+
 mongoose
   .connect(process.env.MONGO_URI)
   .then(() => {
     console.log("MongoDB connected");
-    app.listen(5000, () => console.log("API running on http://localhost:5000"));
+    app.listen(PORT, () => console.log(`API running on port ${PORT}`));
   })
   .catch((e) => console.error("MongoDB error:", e.message));
