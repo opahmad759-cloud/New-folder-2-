@@ -3,7 +3,7 @@ const mongoose = require("mongoose");
 const Product = require("../models/Product");
 const Order = require("../models/Order");
 const { requireAuth } = require("../middleware/auth");
-const { calculateTotals } = require("../utils/pricing");
+const { calculateTotals, GIFT_FROM, GIFT_MIN_PRICE, GIFT_MAX_PRICE } = require("../utils/pricing");
 const { getSettings } = require("../utils/settings");
 
 const router = express.Router();
@@ -15,11 +15,26 @@ async function giveBack(lines) {
     }
 }
 
+// shuttles the customer can choose as a free gift (in stock, in the price range)
+function giftChoices() {
+    return Product.find({
+        category: "shuttle",
+        price: { $gte: GIFT_MIN_PRICE, $lte: GIFT_MAX_PRICE },
+        stock: { $gt: 0 },
+    }).sort({ price: 1 });
+}
+
+// true if this customer has no earlier order (cancelled orders do not count)
+async function isFirstOrder(userId) {
+    const before = await Order.countDocuments({ user: userId, status: { $ne: "cancelled" } });
+    return before === 0;
+}
+
 // POST /api/orders  { items: [{ productId, qty }], shipping: { fullName, phone, address, city } }
 router.post("/", requireAuth, async (req, res) => {
     let reserved = []; // lines whose stock we already took
     try {
-        const { items, shipping } = req.body;
+        const { items, shipping, giftProductId } = req.body;
 
         // 1) check what the browser sent
         if (!Array.isArray(items) || items.length === 0) {
@@ -71,13 +86,43 @@ router.post("/", requireAuth, async (req, res) => {
 
         // 4) work out the totals on the server and save the order
         const settings = await getSettings();
-        const totals = calculateTotals(lines, settings);
+        const firstOrder = await isFirstOrder(req.user.id);
+        const { giftEarned, ...totals } = calculateTotals(lines, settings, firstOrder);
+
+        // free gift: the customer must pick one shuttle from the allowed list
+        let giftItem;
+        if (giftEarned && (await giftChoices()).length > 0) {
+            if (!mongoose.isValidObjectId(giftProductId)) {
+                await giveBack(reserved);
+                return res.status(400).json({ message: "Please choose your free gift" });
+            }
+            const gp = await Product.findOne({
+                _id: giftProductId,
+                category: "shuttle",
+                price: { $gte: GIFT_MIN_PRICE, $lte: GIFT_MAX_PRICE },
+            });
+            if (!gp) {
+                await giveBack(reserved);
+                return res.status(400).json({ message: "This gift is not available" });
+            }
+            const took = await Product.updateOne({ _id: gp._id, stock: { $gte: 1 } }, { $inc: { stock: -1 } });
+            if (took.modifiedCount === 0) {
+                await giveBack(reserved);
+                return res.status(409).json({ message: "Your chosen gift just went out of stock. Please choose another." });
+            }
+            reserved.push({ product: gp._id, qty: 1 }); // so it is returned if something fails
+            giftItem = { product: gp._id, name: gp.name, image: gp.image, price: gp.price };
+        }
+
         const order = await Order.create({
             user: req.user.id,
             items: lines,
             shipping: ship,
             ...totals,
+            firstOrder,
+            giftItem,
         });
+
 
         res.status(201).json(order);
     } catch (e) {
@@ -92,6 +137,20 @@ router.get("/mine", requireAuth, async (req, res) => {
     try {
         const orders = await Order.find({ user: req.user.id }).sort({ createdAt: -1 });
         res.json(orders);
+    } catch (e) {
+        res.status(500).json({ message: "Server error" });
+    }
+});
+
+// GET /api/orders/offer  -> is the next order a first order? + the gift rule and choices
+router.get("/offer", requireAuth, async (req, res) => {
+    try {
+        const choices = await giftChoices();
+        res.json({
+            isFirstOrder: await isFirstOrder(req.user.id),
+            giftFrom: GIFT_FROM,
+            giftChoices: choices.map((p) => ({ _id: p._id, name: p.name, brand: p.brand, price: p.price, image: p.image })),
+        });
     } catch (e) {
         res.status(500).json({ message: "Server error" });
     }
@@ -152,7 +211,9 @@ router.patch("/:id/cancel", requireAuth, async (req, res) => {
             return res.status(400).json({ message: "Only pending orders can be cancelled" });
         }
 
-        await giveBack(updated.items); // put the stock back on the products
+        const back = [...updated.items];
+        if (updated.giftItem && updated.giftItem.product) back.push({ product: updated.giftItem.product, qty: 1 });
+        await giveBack(back); // items and the gift go back on the shelf
         res.json(updated);
     } catch (e) {
         res.status(500).json({ message: "Server error" });

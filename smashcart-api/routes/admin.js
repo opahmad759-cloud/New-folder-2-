@@ -5,6 +5,7 @@ const Product = require("../models/Product");
 const User = require("../models/User");
 const mongoose = require("mongoose")
 const Settings = require("../models/Settings");
+const ChatLog = require("../models/ChatLog");
 
 const router = express.Router();
 
@@ -226,11 +227,11 @@ router.patch("/orders/:id/status", async (req, res) => {
             return res.status(409).json({ message: "This order was just changed. Refresh and try again." });
         }
 
-        // cancelled order: put the items back in stock
+        // cancelled order: put the items (and the gift) back in stock
         if (status === "cancelled") {
-            await Promise.all(
-                updated.items.map((i) => Product.updateOne({ _id: i.product }, { $inc: { stock: i.qty } }))
-            );
+            const back = updated.items.map((i) => ({ product: i.product, qty: i.qty }));
+            if (updated.giftItem && updated.giftItem.product) back.push({ product: updated.giftItem.product, qty: 1 });
+            await Promise.all(back.map((i) => Product.updateOne({ _id: i.product }, { $inc: { stock: i.qty } })));
         }
 
         res.json(updated);
@@ -276,6 +277,40 @@ router.get("/customers", async (req, res) => {
     } catch (err) {
         console.error(err);
         res.status(500).json({ message: "Could not load customers" });
+    }
+});
+
+// GET /api/admin/chats - the newest chat questions + the questions asked most often
+router.get("/chats", async (req, res) => {
+    try {
+        const [chats, total, top] = await Promise.all([
+            ChatLog.find().sort({ createdAt: -1 }).limit(200),
+            ChatLog.countDocuments(),
+            ChatLog.aggregate([
+                { $group: { _id: { $toLower: { $trim: { input: "$question" } } }, count: { $sum: 1 } } },
+                { $match: { count: { $gt: 1 } } }, // only questions asked more than once
+                { $sort: { count: -1 } },
+                { $limit: 5 },
+            ]),
+        ]);
+        res.json({ total, top: top.map((t) => ({ question: t._id, count: t.count })), chats });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: "Could not load chats" });
+    }
+});
+
+// DELETE /api/admin/chats/:id
+router.delete("/chats/:id", async (req, res) => {
+    try {
+        if (!mongoose.isValidObjectId(req.params.id)) {
+            return res.status(400).json({ message: "Invalid chat id" });
+        }
+        await ChatLog.findByIdAndDelete(req.params.id);
+        res.json({ message: "Deleted" });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: "Could not delete the chat" });
     }
 });
 

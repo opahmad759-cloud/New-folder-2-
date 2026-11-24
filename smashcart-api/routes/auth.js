@@ -3,6 +3,7 @@ const express = require("express");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
+const { sendMail } = require("../utils/mail");
 
 const router = express.Router();
 
@@ -77,8 +78,23 @@ router.post("/forgot-password", async (req, res) => {
             await user.save();
 
             const link = `${process.env.CLIENT_URL}/reset-password/${token}`;
-            // later: send this link by email. For now we print it in this terminal.
-            console.log(`\nPassword reset link for ${user.email}:\n${link}\n`);
+            try {
+                await sendMail({
+                    to: user.email,
+                    subject: "Reset your SmashCart password",
+                    html: `
+                        <div style="font-family:Arial,sans-serif;max-width:480px">
+                            <h2>Reset your password</h2>
+                            <p>We got a request to reset the password of your SmashCart account. Click the button below. The link works for 15 minutes.</p>
+                            <p><a href="${link}" style="display:inline-block;background:#e11d2e;color:#fff;padding:12px 22px;border-radius:10px;text-decoration:none;font-weight:bold">Reset password</a></p>
+                            <p style="color:#666;font-size:13px">If you did not ask for this, you can ignore this email.</p>
+                        </div>`,
+                });
+            } catch (mailErr) {
+                // the customer still sees the normal message; we only log the problem here
+                console.error("Could not send reset email:", mailErr.message);
+                if (!process.env.BREVO_API_KEY) console.log(`Reset link (email not set up): ${link}`);
+            }
         }
 
         // the same answer whether the email exists or not

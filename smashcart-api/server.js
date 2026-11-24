@@ -5,6 +5,7 @@ const mongoose = require("mongoose");
 const Product = require("./models/Product");
 
 const app = express();
+app.set("trust proxy", 1); // Render sits in front of the API, so rate limits count each visitor's own address
 app.use(cors({ origin: process.env.CLIENT_URL }));
 app.use(express.json());
 
@@ -14,6 +15,7 @@ app.use("/api/users", require("./routes/users"));
 app.use("/api/messages", require("./routes/messages"));
 app.use("/api/admin", require("./routes/admin"));
 app.use("/api/settings", require("./routes/settings"));
+app.use("/api/chat", require("./routes/chat"));
 
 app.get("/", (req, res) => res.send("SmashCart API is running"));
 

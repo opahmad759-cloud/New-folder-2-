@@ -25,6 +25,13 @@ const orderSchema = new mongoose.Schema(
         discount: Number,
         discountRate: Number,
         delivery: Number,
+        giftItem: {
+            product: { type: mongoose.Schema.Types.ObjectId, ref: "Product" },
+            name: String,
+            image: String,
+            price: Number,
+        },
+        firstOrder: { type: Boolean, default: false },
         total: Number,
         paymentMethod: { type: String, enum: ["cod"], default: "cod" },
         status: {
