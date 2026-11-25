@@ -6,8 +6,26 @@ const User = require("../models/User");
 const mongoose = require("mongoose")
 const Settings = require("../models/Settings");
 const ChatLog = require("../models/ChatLog");
+const multer = require("multer");
+const cloudinary = require("cloudinary").v2;
 
 const router = express.Router();
+
+cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
+// the photo stays in memory (the free host has no permanent disk), max 4 MB, images only
+const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 4 * 1024 * 1024 },
+    fileFilter: (req, file, cb) => {
+        if (["image/jpeg", "image/png", "image/webp"].includes(file.mimetype)) cb(null, true);
+        else cb(new Error("Only JPG, PNG or WebP images are allowed"));
+    },
+});
 
 // every route in this file is for admins only
 router.use(requireAuth, requireAdmin);
@@ -87,6 +105,26 @@ router.post("/products", async (req, res) => {
         console.error(err);
         res.status(500).json({ message: "Could not add product" });
     }
+});
+
+// POST /api/admin/upload - upload one product photo to Cloudinary, returns its web address
+router.post("/upload", (req, res) => {
+    upload.single("image")(req, res, async (err) => {
+        if (err) {
+            const message = err.code === "LIMIT_FILE_SIZE" ? "Image must be 4 MB or smaller" : err.message;
+            return res.status(400).json({ message });
+        }
+        if (!req.file) return res.status(400).json({ message: "Please choose an image" });
+
+        try {
+            const dataUri = `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`;
+            const result = await cloudinary.uploader.upload(dataUri, { folder: "smashcart/products" });
+            res.json({ url: result.secure_url });
+        } catch (e) {
+            console.error("Upload error:", e.message);
+            res.status(500).json({ message: "Could not upload the image" });
+        }
+    });
 });
 
 // PUT /api/admin/products/:id - edit a product
